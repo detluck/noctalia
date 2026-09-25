@@ -4174,6 +4174,10 @@
           "description": "Allow mouse wheel and trackpad scroll actions on this widget",
           "label": "Enable Scroll"
         },
+        "exec": {
+          "description": "Shell command to execute for dynamic output",
+          "label": "Command"
+        },
         "focused-color": {
           "description": "Color role used for the focused workspace; fixed hex colors are also supported",
           "label": "Focused Color"
@@ -4331,6 +4335,10 @@
         "interface": {
           "description": "Network interface to monitor; leave empty to use the total across all interfaces",
           "label": "Interface"
+        },
+        "interval": {
+          "description": "Polling interval in milliseconds (0 runs once at startup)",
+          "label": "Interval"
         },
         "item-spacing": {
           "description": "Space between taskbar items when workspace grouping is off",
