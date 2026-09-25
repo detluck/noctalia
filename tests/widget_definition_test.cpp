@@ -147,6 +147,18 @@ int main() {
   checkDefinition("spacer", spacerWidgetDefinition);
   checkDefinition("sysmon", sysmonWidgetDefinition, SysmonWidgetDefinitionContext{});
 
+  WidgetConfig customButtonConfig;
+  customButtonConfig.type = "custom_button";
+  customButtonConfig.settings["exec"] = std::string("echo test");
+  customButtonConfig.settings["interval"] = static_cast<std::int64_t>(2500);
+  const auto customButtonResolved = customButtonWidgetDefinition().resolve(&customButtonConfig, "custom_button");
+  if (customButtonResolved.exec != "echo test") {
+    fail("custom_button", "exec setting did not resolve to options");
+  }
+  if (customButtonResolved.interval != 2500) {
+    fail("custom_button", "interval setting did not resolve to options");
+  }
+
   WidgetConfig invalidKeyboardLayout;
   invalidKeyboardLayout.type = "keyboard_layout";
   invalidKeyboardLayout.settings["show_glyph"] = false;
