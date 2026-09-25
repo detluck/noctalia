@@ -1,5 +1,6 @@
 #include "shell/bar/widgets/custom_button_widget_definition.h"
 
+#include "shell/bar/widget_definition.h"
 #include "shell/bar/widgets/glyph_button_definition.h"
 
 const noctalia::bar::WidgetDefinition<CustomButtonWidget::Options>& customButtonWidgetDefinition() {
@@ -14,6 +15,12 @@ const noctalia::bar::WidgetDefinition<CustomButtonWidget::Options>& customButton
           }),
           field<&Options::tooltip>({
               .key = "tooltip",
+          }),
+          field<&Options::exec>({
+              .key = "exec",
+          }),
+          field<&Options::interval>({
+              .key = "interval",
           })
       ),
       .glyph = [](const Options& options) { return options.glyph; },
