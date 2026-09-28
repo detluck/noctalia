@@ -80,8 +80,7 @@ std::vector<LauncherResult> EmojiProvider::query(std::string_view text) const {
   if (query.empty()) {
     std::vector<LauncherResult> results;
     results.reserve(m_entries.size());
-    for (std::size_t i = 0; i < m_entries.size(); ++i) {
-      const auto& e = m_entries[i];
+    for (const auto& e : m_entries) {
       LauncherResult r;
       r.id = "emoji-" + e.emoji;
       r.title = e.name;
