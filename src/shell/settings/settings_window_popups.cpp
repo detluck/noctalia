@@ -543,7 +543,7 @@ void SettingsWindow::openSearchPickerPopup(settings::SearchPickerOpenRequest req
   );
 }
 
-void SettingsWindow::openMonitorOverrideCreateDialog(std::string barName) {
+void SettingsWindow::openMonitorOverrideCreateDialog(std::optional<std::string> barName) {
   if (m_wayland == nullptr
       || m_renderContext == nullptr
       || m_surface == nullptr
@@ -563,8 +563,8 @@ void SettingsWindow::openMonitorOverrideCreateDialog(std::string barName) {
   }
 
   const Config& cfg = m_config->config();
-  const BarConfig* bar = settings::findBar(cfg, barName);
-  if (bar == nullptr) {
+  const BarConfig* bar = barName ? settings::findBar(cfg, *barName) : nullptr;
+  if (barName && bar == nullptr) {
     return;
   }
 
@@ -577,9 +577,16 @@ void SettingsWindow::openMonitorOverrideCreateDialog(std::string barName) {
   const std::vector<settings::SelectOption> outputs = availableOutputs();
 
   std::vector<std::string> existingMatches;
-  existingMatches.reserve(bar->monitorOverrides.size());
-  for (const auto& monitorOverride : bar->monitorOverrides) {
-    existingMatches.push_back(monitorOverride.match);
+  if (bar != nullptr) {
+    existingMatches.reserve(bar->monitorOverrides.size());
+    for (const auto& monitorOverride : bar->monitorOverrides) {
+      existingMatches.push_back(monitorOverride.match);
+    }
+  } else {
+    existingMatches.reserve(cfg.dock.monitorOverrides.size());
+    for (const auto& monitorOverride : cfg.dock.monitorOverrides) {
+      existingMatches.push_back(monitorOverride.match);
+    }
   }
 
   // Transient value of the pending match, shared between the segmented picker, the free-text input,
@@ -638,7 +645,11 @@ void SettingsWindow::openMonitorOverrideCreateDialog(std::string barName) {
         }
         return;
       }
-      createMonitorOverride(barName, match);
+      if (barName) {
+        createMonitorOverride(*barName, match);
+      } else {
+        createDockMonitorOverride(match);
+      }
       if (m_editorSheetModal != nullptr) {
         m_editorSheetModal->close();
       }
@@ -1183,7 +1194,7 @@ void SettingsWindow::openNotificationFilterCreateEditor() {
   auto ctx = makeContentContext(cfg, selectedBar, selectedMonitorOverride);
   ctx.openNotificationFilterEntryEditor = {};
   ctx.afterNotificationFilterApply = [this, rowState]() {
-    if (m_config == nullptr || rowState->match.empty()) {
+    if (m_config == nullptr || (rowState->match.empty() && rowState->matchContent.empty())) {
       return;
     }
     auto next = m_config->config().notification.filters;

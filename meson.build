@@ -493,6 +493,7 @@ _noctalia_sources = files(
   'src/dbus/notification/notification_poll_source.cpp',
   'src/dbus/notification/notification_service.cpp',
   'src/dbus/power/power_profiles_service.cpp',
+  'src/dbus/secret/secret_collection_probe.cpp',
   'src/dbus/session_bus.cpp',
   'src/dbus/system_bus.cpp',
   'src/dbus/tray/fcitx_status.cpp',
@@ -533,6 +534,7 @@ _noctalia_sources = files(
   'src/notification/notification_display_name.cpp',
   'src/notification/notification_history_store.cpp',
   'src/pipewire/pipewire_service.cpp',
+  'src/pipewire/pipewire_error.cpp',
   'src/pipewire/audio_glyphs.cpp',
   'src/pipewire/audio_route_selection.cpp',
   'src/pipewire/wireplumber_mixer.cpp',
@@ -955,10 +957,6 @@ _noctalia_sources = files(
   'src/compositors/niri/niri_output_backend.cpp',
   'src/compositors/niri/niri_keyboard_backend.cpp',
   'src/compositors/niri/niri_workspace_backend.cpp',
-  'src/compositors/triad/triad_runtime.cpp',
-  'src/compositors/triad/triad_output_backend.cpp',
-  'src/compositors/triad/triad_keyboard_backend.cpp',
-  'src/compositors/triad/triad_workspace_backend.cpp',
   'src/compositors/umbriel/umbriel_runtime.cpp',
   'src/compositors/umbriel/umbriel_event_handler.cpp',
   'src/compositors/umbriel/umbriel_workspace_backend.cpp',
@@ -1002,6 +1000,7 @@ _noctalia_sources = files(
   'src/theme/kde_color_scheme.cpp',
   'src/theme/firefox_theme/css.cpp',
   'src/theme/firefox_theme/firefox_theme.cpp',
+  'src/theme/firefox_theme/manifest.cpp',
   'src/theme/firefox_theme/native_messaging.cpp',
   'src/theme/firefox_theme/settings.cpp',
   'src/theme/hook_runner.cpp',
@@ -1150,6 +1149,14 @@ install_data(
 )
 
 if build_tests
+  wayland_server_dep = dependency('wayland-server')
+
+  _wlr_screencopy_test_server_h = custom_target('wlr-screencopy-unstable-v1-test-server-header',
+    input: 'protocols/wlr-screencopy-unstable-v1.xml',
+    output: 'wlr-screencopy-unstable-v1-test-server-protocol.h',
+    command: [wayland_scanner, 'server-header', '@INPUT@', '@OUTPUT@'],
+  )
+
   _cpp_test_names = [
     'annotation_document',
     'annotation_raster',
@@ -1170,6 +1177,7 @@ if build_tests
     'calendar_view_passed_event',
     'capsule_group_lane_override',
     'capsule_group_reconcile',
+    'capsule_group_style_persist',
     'cli_help',
     'cli_parse',
     'cli_schema',
@@ -1194,6 +1202,7 @@ if build_tests
     'event_link',
     'fcitx_status',
     'freedesktop_key_file',
+    'firefox_theme_manifest',
     'google_client_calendar_list',
     'google_client_reminders',
     'greeter_appearance_sync',
@@ -1231,6 +1240,7 @@ if build_tests
     'notification_history_utf8',
     'notification_internal_history',
     'path_browse',
+    'pipewire_error',
     'plugin_bindings',
     'plugin_catalog',
     'plugin_git_export',
@@ -1257,7 +1267,6 @@ if build_tests
     'time_format',
     'toplevel_thumbnail_capture',
     'tray_identifier',
-    'triad_workspace_backend',
     'ui_tree_reconciler',
     'upower_charge_limit',
     'upower_device_catalog',
@@ -1272,7 +1281,10 @@ if build_tests
     'widget_action',
     'widget_definition',
     'widget_settings_schema',
+    'window_switcher_membership',
+    'window_switcher_shortcut_state',
     'workspace_alert_service',
+    'workspaces_widget',
   ]
 
   foreach test_name : _cpp_test_names
@@ -1293,9 +1305,32 @@ if build_tests
     test(test_name, test_exe, args: test_args)
   endforeach
 
+  screencopy_connection_isolation_exe = executable('screencopy_connection_isolation_test',
+    sources: files('tests/screencopy_connection_isolation_test.cpp') + [_wlr_screencopy_test_server_h],
+    dependencies: [noctalia_core_dep, wayland_server_dep],
+    override_options: ['b_ndebug=false'],
+  )
+  test('screencopy_connection_isolation', screencopy_connection_isolation_exe)
+
   upower_integration_exe = executable('upower_charge_limit_integration_test',
     sources: files('tests/upower_charge_limit_integration_test.cpp'),
     dependencies: noctalia_core_dep,
+    override_options: ['b_ndebug=false'],
+  )
+  secret_collection_probe_integration_exe = executable('secret_collection_probe_integration_test',
+    sources: files('tests/secret_collection_probe_integration_test.cpp'),
+    dependencies: noctalia_core_dep,
+    override_options: ['b_ndebug=false'],
+  )
+  tray_registration_integration_exe = executable('tray_registration_integration_test',
+    sources: files('tests/tray_registration_integration_test.cpp'),
+    dependencies: noctalia_core_dep,
+    override_options: ['b_ndebug=false'],
+  )
+  fingerprint_integration_exe = executable('fingerprint_authenticator_integration_test',
+    sources: files('tests/fingerprint_authenticator_integration_test.cpp'),
+    dependencies: noctalia_core_dep,
+    override_options: ['b_ndebug=false'],
   )
   dbus_run_session = find_program('dbus-run-session', required: false)
   if dbus_run_session.found()
@@ -1307,6 +1342,44 @@ if build_tests
         'sh', upower_integration_exe.full_path(),
       ],
       depends: upower_integration_exe,
+    )
+    test('secret_collection_probe_integration',
+      dbus_run_session,
+      args: ['--', secret_collection_probe_integration_exe.full_path()],
+      depends: secret_collection_probe_integration_exe,
+    )
+    foreach mode : ['registration', 'discovery']
+      test('tray_' + mode + '_integration',
+        dbus_run_session,
+        args: ['--', tray_registration_integration_exe.full_path(), mode],
+        depends: tray_registration_integration_exe,
+      )
+    endforeach
+    test('fingerprint_authenticator_integration',
+      dbus_run_session,
+      args: [
+        '--', 'sh', '-c',
+        'export DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"; exec "$1"',
+        'sh', fingerprint_integration_exe.full_path(),
+      ],
+      depends: fingerprint_integration_exe,
+    )
+  endif
+
+  bluetooth_property_integration_exe = executable('bluetooth_property_integration_test',
+    sources: files('tests/bluetooth_property_integration_test.cpp'),
+    dependencies: noctalia_core_dep,
+    override_options: ['b_ndebug=false'],
+  )
+  if dbus_run_session.found()
+    test('bluetooth_property_integration',
+      dbus_run_session,
+      args: [
+        '--', 'sh', '-c',
+        'export DBUS_SYSTEM_BUS_ADDRESS="$DBUS_SESSION_BUS_ADDRESS"; exec "$1"',
+        'sh', bluetooth_property_integration_exe.full_path(),
+      ],
+      depends: bluetooth_property_integration_exe,
     )
   endif
 
