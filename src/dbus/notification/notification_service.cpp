@@ -11,6 +11,8 @@
 #include "util/string_utils.h"
 
 #include <cstdint>
+#include <sdbus-c++/Error.h>
+#include <string>
 #include <tuple>
 #include <unistd.h>
 
@@ -134,7 +136,9 @@ NotificationService::NotificationService(SessionBus& bus, NotificationManager& m
 
             sdbus::registerSignal("ActivationToken").withParameters<uint32_t, std::string>("id", "activation_token"),
 
-            sdbus::registerSignal("ActionInvoked").withParameters<uint32_t, std::string>("id", "action_key")
+            sdbus::registerSignal("ActionInvoked").withParameters<uint32_t, std::string>("id", "action_key"),
+
+            sdbus::registerSignal("NotificationReplied").withParameters<uint32_t, std::string>("id", "text")
         )
         .forInterface(kInterface);
 
@@ -144,9 +148,13 @@ NotificationService::NotificationService(SessionBus& bus, NotificationManager& m
                                           uint32_t id, const std::string& actionKey, const std::string& activationToken
                                       ) { emitActionInvoked(id, actionKey, activationToken); });
     m_manager.setCloseCallback([this](uint32_t id, CloseReason reason) { emitClose(id, reason); });
+    m_manager.setReplyCallback([this](uint32_t id, const std::string& text, const std::string& activationToken) {
+      emitNotificationReplied(id, text, activationToken);
+    });
   } catch (...) {
     m_manager.setCloseCallback(nullptr);
     m_manager.setActionInvokeCallback(nullptr);
+    m_manager.setReplyCallback(nullptr);
     if (m_nameAcquired) {
       try {
         m_bus.connection().releaseName(kBusName);
@@ -162,6 +170,7 @@ NotificationService::NotificationService(SessionBus& bus, NotificationManager& m
 NotificationService::~NotificationService() {
   m_manager.setCloseCallback(nullptr);
   m_manager.setActionInvokeCallback(nullptr);
+  m_manager.setReplyCallback(nullptr);
 
   if (m_nameAcquired) {
     try {
@@ -506,8 +515,6 @@ void NotificationService::emitActionInvoked(
 ) {
   if (actionKey == "inline-reply") {
     kLog.warn("notification #{}: ActionInvoked with bare inline-reply (missing reply text)", id);
-  } else if (actionKey.starts_with("inline-reply::")) {
-    kLog.debug("notification #{}: inline-reply action invoked ({} bytes)", id, actionKey.size());
   } else {
     kLog.debug("notification #{}: action '{}'", id, actionKey);
   }
@@ -534,6 +541,23 @@ void NotificationService::emitActivationToken(uint32_t id, const std::string& ac
     m_object->emitSignal("ActivationToken").onInterface(kInterface).withArguments(id, activationToken);
   } catch (const sdbus::Error& e) {
     kLog.debug("notification #{}: ActivationToken emit failed: {}", id, e.what());
+  }
+}
+
+void NotificationService::emitNotificationReplied(
+    uint32_t id, const std::string& text, const std::string& activationToken
+) {
+  if (m_object == nullptr || text.empty()) {
+    return;
+  }
+  if (!activationToken.empty()) {
+    emitActivationToken(id, activationToken);
+  }
+  kLog.debug("notification #{}: NotificationReplied emitted ({} bytes)", id, text.size());
+  try {
+    m_object->emitSignal("NotificationReplied").onInterface(kInterface).withArguments(id, text);
+  } catch (const sdbus::Error& e) {
+    kLog.debug("notification #{}: NotificationReplied emit failed: {}", id, e.what());
   }
 }
 

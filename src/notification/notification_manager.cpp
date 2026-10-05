@@ -29,8 +29,6 @@ namespace {
   }
 
   constexpr std::string_view kInlineReplyAction = "inline-reply";
-  constexpr std::string_view kInlineReplyActionPrefix = "inline-reply::";
-  constexpr std::size_t kMaxActionKeyLength = 1024;
 
   bool notificationHasAction(const Notification& notification, std::string_view actionKey) {
     for (std::size_t i = 0; i + 1 < notification.actions.size(); i += 2) {
@@ -497,6 +495,8 @@ void NotificationManager::setActionInvokeCallback(ActionInvokeCallback callback)
 
 void NotificationManager::setCloseCallback(CloseCallback callback) { m_closeCallback = std::move(callback); }
 
+void NotificationManager::setReplyCallback(ReplyCallback callback) { m_replyCallback = std::move(callback); }
+
 bool NotificationManager::hasPendingDBusClose(uint32_t id) const noexcept { return m_pendingDBusClose.contains(id); }
 
 bool NotificationManager::invokeAction(uint32_t id, const std::string& actionKey, bool closeAfterInvoke) {
@@ -523,15 +523,10 @@ bool NotificationManager::invokeAction(
   }
 
   if (actionKey == kInlineReplyAction) {
-    // This server delivers reply text via invokeInlineReply() as "inline-reply::<text>".
+    // Inline replies are delivered via invokeInlineReply() and the NotificationReplied signal.
     return false;
   }
-  const bool inlineReplyWithPayload = actionKey.starts_with(std::string(kInlineReplyActionPrefix));
-  if (inlineReplyWithPayload) {
-    if (!notificationHasAction(*notification, kInlineReplyAction)) {
-      return false;
-    }
-  } else if (!notificationHasAction(*notification, actionKey)) {
+  if (!notificationHasAction(*notification, actionKey)) {
     return false;
   }
 
@@ -569,11 +564,43 @@ bool NotificationManager::invokeInlineReply(
     return false;
   }
 
-  std::string actionKey;
-  actionKey.reserve(kInlineReplyActionPrefix.size() + replyText.size());
-  actionKey.append(kInlineReplyActionPrefix);
-  actionKey.append(StringUtils::truncateUtf8(replyText, kMaxActionKeyLength - kInlineReplyActionPrefix.size()));
-  return invokeAction(id, actionKey, std::move(activationToken), closeAfterInvoke);
+  const Notification* notification = nullptr;
+  if (const auto it = m_idToIndex.find(id); it != m_idToIndex.end()) {
+    notification = &m_notifications[it->second];
+  } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
+    if (!hasPendingDBusClose(id)) {
+      return false;
+    }
+    notification = &m_history[histIt->second].notification;
+  } else {
+    return false;
+  }
+
+  // Verify this notification actually has the "inline-reply" button
+  if (!notificationHasAction(*notification, kInlineReplyAction)) {
+    return false;
+  }
+
+  // Send the text via reply callback
+  if (notification->origin == NotificationOrigin::External) {
+    if (m_replyCallback) {
+      m_replyCallback(id, replyText, activationToken);
+    }
+  }
+
+  // Dismiss the notification
+  if (closeAfterInvoke) {
+    if (m_idToIndex.contains(id)) {
+      (void)close(id, CloseReason::Dismissed);
+    } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
+      emitPendingDBusClose(id, CloseReason::Dismissed);
+      m_history[histIt->second].notification.actions.clear();
+      m_history[histIt->second].active = false;
+      ++m_changeSerial;
+      schedulePersistHistory();
+    }
+  }
+  return true;
 }
 
 void NotificationManager::emitPendingDBusClose(uint32_t id, CloseReason reason) {

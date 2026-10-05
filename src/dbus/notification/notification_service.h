@@ -68,6 +68,7 @@ private:
   void onInvokeAction(uint32_t id, const std::string& actionKey);
   void emitActionInvoked(uint32_t id, const std::string& actionKey, const std::string& activationToken);
   void emitActivationToken(uint32_t id, const std::string& activationToken);
+  void emitNotificationReplied(uint32_t id, const std::string& text, const std::string& activationToken);
 
   std::vector<std::map<std::string, sdbus::Variant>> onGetNotifications();
 

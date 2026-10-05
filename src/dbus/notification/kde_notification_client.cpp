@@ -96,6 +96,7 @@ KdeNotificationClient::KdeNotificationClient(SessionBus& bus, NotificationManage
 KdeNotificationClient::~KdeNotificationClient() {
   m_manager.setCloseCallback(nullptr);
   m_manager.setActionInvokeCallback(nullptr);
+  m_manager.setReplyCallback(nullptr);
   unregisterWatcher();
 
   if (m_inhibitCookie != 0 && m_plasmaProxy != nullptr) {
