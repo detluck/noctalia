@@ -1238,6 +1238,7 @@ if build_tests
     'notification_filter',
     'notification_history_dismiss',
     'notification_history_utf8',
+    'notification_inline_reply',
     'notification_internal_history',
     'path_browse',
     'pipewire_error',
