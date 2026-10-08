@@ -50,6 +50,7 @@ struct NotificationRequest {
   std::string appName;
   std::string summary;
   std::string body;
+  std::string sender;
   Urgency urgency = Urgency::Normal;
   int32_t timeout = kDefaultNotificationTimeout;
   NotificationOrigin origin = NotificationOrigin::External;
@@ -74,7 +75,8 @@ public:
   using ActionInvokeCallback = std::function<void(uint32_t, const std::string&, const std::string&)>;
   using CloseCallback = std::function<void(uint32_t, CloseReason)>;
   using StateCallback = std::function<void()>;
-  using ReplyCallback = std::function<void(uint32_t, const std::string&, const std::string&)>;
+  using ReplyCallback =
+      std::function<void(uint32_t, const std::string&, const std::string&, const std::string& sender)>;
 
   // Register a callback for notification events. Returns a token for removal.
   int addEventCallback(EventCallback callback);

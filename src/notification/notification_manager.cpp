@@ -65,12 +65,13 @@ namespace {
 
   bool hasSameContent(
       const Notification& notification, NotificationOrigin origin, const std::string& appName,
-      const std::string& summary, const std::string& body
+      const std::string& summary, const std::string& body, const std::string& sender
   ) {
     return notification.origin == origin
         && notification.appName == appName
         && notification.summary == summary
-        && notification.body == body;
+        && notification.body == body
+        && notification.sender == sender;
   }
 
   bool shouldTrackHistory(NotificationOrigin origin, Urgency urgency, bool transient, bool persistInHistory) noexcept {
@@ -262,6 +263,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
   auto& appName = request.appName;
   auto& summary = request.summary;
   auto& body = request.body;
+  auto& sender = request.sender;
   const Urgency urgency = request.urgency;
   int32_t timeout = request.timeout;
   const NotificationOrigin origin = request.origin;
@@ -327,6 +329,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
           (n.appName != appName
            || n.summary != summary
            || n.body != body
+           || n.sender != sender
            || n.timeout != timeout
            || n.urgency != urgency
            || n.origin != origin
@@ -345,6 +348,9 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
       n.dndPolicy = dndPolicy;
       n.summary = std::move(summary);
       n.body = std::move(body);
+      if (!sender.empty()) {
+        n.sender = std::move(sender);
+      }
       n.timeout = timeout;
       n.urgency = urgency;
       n.actions = std::move(actions);
@@ -382,7 +388,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
 
   // Suppress immediate duplicate bursts. Later same-content notifications should still be visible.
   for (const auto& existing : std::views::reverse(m_notifications)) {
-    if (hasSameContent(existing, origin, appName, summary, body)
+    if (hasSameContent(existing, origin, appName, summary, body, sender)
         && now - existing.receivedTime < kImplicitDuplicateWindow) {
       logNotification(existing, "duplicate ignored");
       return existing.id;
@@ -403,6 +409,7 @@ uint32_t NotificationManager::addOrReplace(NotificationRequest request) {
           .appName = std::move(appName),
           .summary = std::move(summary),
           .body = std::move(body),
+          .sender = std::move(sender),
           .timeout = timeout,
           .urgency = urgency,
           .actions = std::move(actions),
@@ -584,7 +591,7 @@ bool NotificationManager::invokeInlineReply(
   // Send the text via reply callback
   if (notification->origin == NotificationOrigin::External) {
     if (m_replyCallback) {
-      m_replyCallback(id, replyText, activationToken);
+      m_replyCallback(id, replyText, activationToken, notification->sender);
     }
   }
 

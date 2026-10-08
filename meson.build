@@ -1384,6 +1384,19 @@ if build_tests
     )
   endif
 
+  notification_reply_integration_exe = executable('notification_reply_integration_test',
+    sources: files('tests/notification_reply_integration_test.cpp'),
+    dependencies: noctalia_core_dep,
+    override_options: ['b_ndebug=false'],
+  )
+  if dbus_run_session.found()
+    test('notification_reply_integration',
+      dbus_run_session,
+      args: ['--', notification_reply_integration_exe.full_path()],
+      depends: notification_reply_integration_exe,
+    )
+  endif
+
   config_validate_env = environment()
   config_validate_env.set('NOCTALIA_CONFIG_HOME', meson.current_source_dir() / 'tests/config_validate/config-home')
   config_validate_env.set('NOCTALIA_STATE_HOME', meson.current_source_dir() / 'tests/config_validate/state-home')

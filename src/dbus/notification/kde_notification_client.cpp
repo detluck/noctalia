@@ -6,6 +6,7 @@
 #include "dbus/session_bus.h"
 #include "notification/notification_manager.h"
 
+#include <cstdint>
 #include <map>
 #include <string>
 #include <vector>
@@ -88,6 +89,9 @@ KdeNotificationClient::KdeNotificationClient(SessionBus& bus, NotificationManage
       return;
     }
     proxyCloseNotification(id);
+  });
+  m_manager.setReplyCallback([this](uint32_t id, const std::string&, const std::string&, const std::string&) {
+    proxyInvokeAction(id, "inline-reply");
   });
 
   m_active = true;
