@@ -114,7 +114,7 @@ public:
   [[nodiscard]] bool invokeAction(uint32_t id, const std::string& actionKey, bool closeAfterInvoke = true);
   [[nodiscard]] bool
   invokeAction(uint32_t id, const std::string& actionKey, std::string activationToken, bool closeAfterInvoke = true);
-  // Emits NotificationReplied with reply text (KDE quick-reply specification).
+  // Passes non-blank reply text and the notification's D-Bus sender to the reply callback.
   [[nodiscard]] bool invokeInlineReply(uint32_t id, const std::string& replyText, bool closeAfterInvoke = true);
   [[nodiscard]] bool invokeInlineReply(
       uint32_t id, const std::string& replyText, std::string activationToken, bool closeAfterInvoke = true
@@ -174,6 +174,9 @@ private:
   void schedulePersistHistory();
   void persistHistoryToDisk();
   void emitPendingDBusClose(uint32_t id, CloseReason reason);
+  // Live notification, or an expired one still awaiting its deferred NotificationClosed; nullptr otherwise.
+  [[nodiscard]] const Notification* findInvokable(uint32_t id) const;
+  void dismissAfterInvoke(uint32_t id);
   [[nodiscard]] bool computeHasUnreadNotificationHistory() const noexcept;
   void notifyUnreadStateChangedIfNeeded(bool previousUnreadState);
   struct ExternalNotificationDispatch {

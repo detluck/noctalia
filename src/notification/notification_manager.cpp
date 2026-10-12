@@ -510,6 +510,28 @@ bool NotificationManager::invokeAction(uint32_t id, const std::string& actionKey
   return invokeAction(id, actionKey, {}, closeAfterInvoke);
 }
 
+const Notification* NotificationManager::findInvokable(uint32_t id) const {
+  if (const auto it = m_idToIndex.find(id); it != m_idToIndex.end()) {
+    return &m_notifications[it->second];
+  }
+  if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end() && hasPendingDBusClose(id)) {
+    return &m_history[histIt->second].notification;
+  }
+  return nullptr;
+}
+
+void NotificationManager::dismissAfterInvoke(uint32_t id) {
+  if (m_idToIndex.contains(id)) {
+    (void)close(id, CloseReason::Dismissed);
+  } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
+    emitPendingDBusClose(id, CloseReason::Dismissed);
+    m_history[histIt->second].notification.actions.clear();
+    m_history[histIt->second].active = false;
+    ++m_changeSerial;
+    schedulePersistHistory();
+  }
+}
+
 bool NotificationManager::invokeAction(
     uint32_t id, const std::string& actionKey, std::string activationToken, bool closeAfterInvoke
 ) {
@@ -517,15 +539,8 @@ bool NotificationManager::invokeAction(
     return false;
   }
 
-  const Notification* notification = nullptr;
-  if (const auto it = m_idToIndex.find(id); it != m_idToIndex.end()) {
-    notification = &m_notifications[it->second];
-  } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
-    if (!hasPendingDBusClose(id)) {
-      return false;
-    }
-    notification = &m_history[histIt->second].notification;
-  } else {
+  const Notification* notification = findInvokable(id);
+  if (notification == nullptr) {
     return false;
   }
 
@@ -547,15 +562,7 @@ bool NotificationManager::invokeAction(
   }
 
   if (closeAfterInvoke) {
-    if (m_idToIndex.contains(id)) {
-      (void)close(id, CloseReason::Dismissed);
-    } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
-      emitPendingDBusClose(id, CloseReason::Dismissed);
-      m_history[histIt->second].notification.actions.clear();
-      m_history[histIt->second].active = false;
-      ++m_changeSerial;
-      schedulePersistHistory();
-    }
+    dismissAfterInvoke(id);
   }
   return true;
 }
@@ -571,41 +578,17 @@ bool NotificationManager::invokeInlineReply(
     return false;
   }
 
-  const Notification* notification = nullptr;
-  if (const auto it = m_idToIndex.find(id); it != m_idToIndex.end()) {
-    notification = &m_notifications[it->second];
-  } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
-    if (!hasPendingDBusClose(id)) {
-      return false;
-    }
-    notification = &m_history[histIt->second].notification;
-  } else {
+  const Notification* notification = findInvokable(id);
+  if (notification == nullptr || !notificationHasAction(*notification, kInlineReplyAction)) {
     return false;
   }
 
-  // Verify this notification actually has the "inline-reply" button
-  if (!notificationHasAction(*notification, kInlineReplyAction)) {
-    return false;
+  if (notification->origin == NotificationOrigin::External && m_replyCallback) {
+    m_replyCallback(id, replyText, activationToken, notification->sender);
   }
 
-  // Send the text via reply callback
-  if (notification->origin == NotificationOrigin::External) {
-    if (m_replyCallback) {
-      m_replyCallback(id, replyText, activationToken, notification->sender);
-    }
-  }
-
-  // Dismiss the notification
   if (closeAfterInvoke) {
-    if (m_idToIndex.contains(id)) {
-      (void)close(id, CloseReason::Dismissed);
-    } else if (const auto histIt = m_historyIndex.find(id); histIt != m_historyIndex.end()) {
-      emitPendingDBusClose(id, CloseReason::Dismissed);
-      m_history[histIt->second].notification.actions.clear();
-      m_history[histIt->second].active = false;
-      ++m_changeSerial;
-      schedulePersistHistory();
-    }
+    dismissAfterInvoke(id);
   }
   return true;
 }
