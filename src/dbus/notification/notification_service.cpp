@@ -137,7 +137,8 @@ NotificationService::NotificationService(SessionBus& bus, NotificationManager& m
 
             sdbus::registerSignal("NotificationClosed").withParameters<uint32_t, uint32_t>("id", "reason"),
 
-            sdbus::registerSignal("ActivationToken").withParameters<uint32_t, std::string>("id", "activation_token"),
+            sdbus::registerSignal(kSignalActivationToken)
+                .withParameters<uint32_t, std::string>("id", "activation_token"),
 
             sdbus::registerSignal("ActionInvoked").withParameters<uint32_t, std::string>("id", "action_key"),
 
