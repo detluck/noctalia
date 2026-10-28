@@ -1010,6 +1010,7 @@ void NotificationsTab::onClose() {
   m_adapter.reset();
   m_filtered.clear();
   m_expandedIds.clear();
+  m_expandedGroupKeys.clear();
   m_lastSerial = 0;
   m_lastRelativeTimeSlot = -1;
   m_lastRebuildFilterIndex = static_cast<std::size_t>(-1);
@@ -1142,6 +1143,7 @@ void NotificationsTab::clearAllNotifications() {
   }
   m_notifications->clearHistory();
   m_expandedIds.clear();
+  m_expandedGroupKeys.clear();
   m_lastSerial = 0;
   if (m_list != nullptr) {
     m_list->notifyDataChanged();
@@ -1310,6 +1312,7 @@ bool NotificationsTab::refreshDataSnapshot() {
     m_filtered.reserve(m_notifications->history().size());
 
     if (!groupByApp) {
+      m_expandedGroupKeys.clear();
       m_filtered.clear();
       for (const auto& historyEntry : std::views::reverse(m_notifications->history())) {
         if (!matchesHistoryFilter(historyEntry, m_filterIndex)) {
@@ -1347,6 +1350,11 @@ bool NotificationsTab::refreshDataSnapshot() {
           groups[it->second].entryIds.push_back(historyEntry.notification.id);
         }
       }
+
+      std::erase_if(m_expandedGroupKeys, [&](const std::string& key) {
+        auto it = groupIndexMap.find(key);
+        return it == groupIndexMap.end() || groups[it->second].entryIds.size() <= 1;
+      });
 
       m_filtered.clear();
       for (const auto& group : groups) {
