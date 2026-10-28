@@ -232,11 +232,10 @@ namespace {
   };
 
   NotificationCardMetrics measureNotificationCard(
-      Renderer& renderer, const NotificationDisplayItem& item, float scale, float width, bool expandedRequested,
-      bool showHistoryActions
+      Renderer& renderer, const NotificationDisplayItem& item, const NotificationHistoryEntry& entry, float scale,
+      float width, bool expandedRequested, bool showHistoryActions
   ) {
     NotificationCardMetrics metrics;
-    const auto& entry = *item.entry;
     const bool isHeader = item.kind == NotificationDisplayItemKind::GroupHeader;
     const bool isGroup = item.kind == NotificationDisplayItemKind::CollapsedGroup || isHeader;
     const float cardWidth = std::max(0.0F, width);
@@ -350,7 +349,7 @@ namespace {
   }
 
   std::string getNotificationGroupKey(const Notification& notification) {
-    const std::string name = StringUtils::trim(notificationDisplayAppName(notification));
+    std::string name = StringUtils::trim(notificationDisplayAppName(notification));
     if (!name.empty()) {
       return name;
     }
@@ -361,12 +360,12 @@ namespace {
   struct NotificationGroup {
     std::string groupKey;
     std::string appName;
-    std::vector<const NotificationHistoryEntry*> entries;
+    std::vector<uint32_t> entryIds;
   };
 
   class NotificationHistoryRow final : public Flex {
   public:
-    explicit NotificationHistoryRow(float scale, float fillOpacity) : m_scale(scale) {
+    explicit NotificationHistoryRow(float scale, float fillOpacity) : m_scale(scale), m_fillOpacity(fillOpacity) {
       setDirection(FlexDirection::Vertical);
       setAlign(FlexAlign::Stretch);
       setFillWidth(true);
@@ -489,14 +488,15 @@ namespace {
       ));
     }
 
+    void setFillOpacity(float fillOpacity) { m_fillOpacity = fillOpacity; }
+
     void bind(
-        Renderer& renderer, const NotificationDisplayItem& item, float width, bool expanded, bool showHistoryActions,
-        IconResolver& iconResolver, std::function<void()> onToggleExpanded, std::function<void()> onRemove,
-        const std::function<void(uint32_t, const std::string&)>& onAction
+        Renderer& renderer, const NotificationDisplayItem& item, const NotificationHistoryEntry& entry, float width,
+        bool expanded, bool showHistoryActions, IconResolver& iconResolver, std::function<void()> onToggleExpanded,
+        std::function<void()> onRemove, const std::function<void(uint32_t, const std::string&)>& onAction
     ) {
-      const auto& entry = *item.entry;
       const NotificationCardMetrics metrics =
-          measureNotificationCard(renderer, item, m_scale, width, expanded, showHistoryActions);
+          measureNotificationCard(renderer, item, entry, m_scale, width, expanded, showHistoryActions);
       setMinWidth(width);
       setSize(width, metrics.height);
 
@@ -504,11 +504,11 @@ namespace {
       setPadding(0.0F, 0.0F, 0.0F, childIndent);
 
       if (item.kind == NotificationDisplayItemKind::GroupHeader) {
-        m_card->setFill(colorSpecFromRole(ColorRole::SurfaceContainerHigh));
-        m_iconSlot->setFill(colorSpecFromRole(ColorRole::SurfaceContainerHigh));
+        m_card->setFill(colorSpecFromRole(ColorRole::SurfaceContainerHigh, m_fillOpacity));
+        m_iconSlot->setFill(colorSpecFromRole(ColorRole::SurfaceContainerHigh, m_fillOpacity));
       } else {
-        m_card->setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
-        m_iconSlot->setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
+        m_card->setFill(colorSpecFromRole(ColorRole::SurfaceContainer, m_fillOpacity));
+        m_iconSlot->setFill(colorSpecFromRole(ColorRole::SurfaceContainer, m_fillOpacity));
       }
 
       const float iconPx = kHistoryIconSize * m_scale;
@@ -703,6 +703,7 @@ namespace {
     }
 
     float m_scale = 1.0F;
+    float m_fillOpacity = 1.0F;
     Flex* m_card = nullptr;
     Flex* m_header = nullptr;
     Flex* m_leftCluster = nullptr;
@@ -730,30 +731,35 @@ public:
   NotificationHistoryAdapter(NotificationsTab& owner, float scale, float fillOpacity)
       : m_owner(owner), m_scale(scale), m_fillOpacity(fillOpacity) {}
 
+  void setFillOpacity(float fillOpacity) { m_fillOpacity = fillOpacity; }
+
   [[nodiscard]] std::size_t itemCount() const override { return m_owner.m_filtered.size(); }
 
   [[nodiscard]] std::uint64_t itemKey(std::size_t index) const override {
-    if (index >= m_owner.m_filtered.size() || m_owner.m_filtered[index].entry == nullptr) {
+    if (index >= m_owner.m_filtered.size()) {
       return static_cast<std::uint64_t>(index);
     }
     const auto& item = m_owner.m_filtered[index];
     if (item.kind == NotificationDisplayItemKind::CollapsedGroup) {
-      return item.entry->notification.id | (1ULL << 32);
+      return static_cast<std::uint64_t>(item.notificationId) | (1ULL << 32);
     }
     if (item.kind == NotificationDisplayItemKind::GroupHeader) {
       return std::hash<std::string>{}(item.groupKey) | (2ULL << 62);
     }
-    return item.entry->notification.id;
+    return item.notificationId;
   }
 
   [[nodiscard]] std::uint64_t itemRevision(std::size_t index) const override {
-    if (index >= m_owner.m_filtered.size() || m_owner.m_filtered[index].entry == nullptr) {
+    if (index >= m_owner.m_filtered.size() || m_owner.m_notifications == nullptr) {
       return 0;
     }
     const auto& item = m_owner.m_filtered[index];
-    const auto& entry = *item.entry;
-    const bool expanded = m_owner.m_expandedIds.contains(entry.notification.id);
-    std::uint64_t revision = revisionForEntry(entry, expanded, m_owner.m_lastRelativeTimeSlot);
+    const auto* entry = m_owner.m_notifications->findHistoryEntry(item.notificationId);
+    if (entry == nullptr) {
+      return 0;
+    }
+    const bool expanded = m_owner.m_expandedIds.contains(entry->notification.id);
+    std::uint64_t revision = revisionForEntry(*entry, expanded, m_owner.m_lastRelativeTimeSlot);
     revision ^= static_cast<std::uint64_t>(Style::cornerRadiusScale() * 10000.0F) * 0xC2B2AE3D27D4EB4FULL;
     revision ^= (static_cast<std::uint64_t>(item.total_count) << 16U);
     revision ^= (static_cast<std::uint64_t>(item.kind) << 48U);
@@ -761,15 +767,17 @@ public:
   }
 
   [[nodiscard]] float measureItem(Renderer& renderer, std::size_t index, float width) override {
-    if (index >= m_owner.m_filtered.size() || m_owner.m_filtered[index].entry == nullptr) {
+    if (index >= m_owner.m_filtered.size() || m_owner.m_notifications == nullptr) {
       return 1.0F;
     }
     const auto& item = m_owner.m_filtered[index];
-    const auto& entry = *item.entry;
-    const bool expanded = m_owner.m_expandedIds.contains(entry.notification.id);
-    const bool showHistoryActions =
-        m_owner.m_notifications != nullptr && m_owner.m_notifications->hasPendingDBusClose(entry.notification.id);
-    return measureNotificationCard(renderer, item, m_scale, width, expanded, showHistoryActions).height;
+    const auto* entry = m_owner.m_notifications->findHistoryEntry(item.notificationId);
+    if (entry == nullptr) {
+      return 1.0F;
+    }
+    const bool expanded = m_owner.m_expandedIds.contains(entry->notification.id);
+    const bool showHistoryActions = m_owner.m_notifications->hasPendingDBusClose(entry->notification.id);
+    return measureNotificationCard(renderer, item, *entry, m_scale, width, expanded, showHistoryActions).height;
   }
 
   [[nodiscard]] std::unique_ptr<Node> createItem() override {
@@ -777,33 +785,37 @@ public:
   }
 
   void bindItem(Renderer& renderer, Node& item, std::size_t index, float width, bool /*hovered*/) override {
-    if (index >= m_owner.m_filtered.size() || m_owner.m_filtered[index].entry == nullptr) {
+    if (index >= m_owner.m_filtered.size() || m_owner.m_notifications == nullptr) {
       return;
     }
     auto* row = dynamic_cast<NotificationHistoryRow*>(&item);
     if (row == nullptr) {
       return;
     }
+    row->setFillOpacity(m_fillOpacity);
+
+    const auto& displayItem = m_owner.m_filtered[index];
+    const auto* entry = m_owner.m_notifications->findHistoryEntry(displayItem.notificationId);
+    if (entry == nullptr) {
+      return;
+    }
     std::function<void()> onToggle;
     std::function<void()> onRemove;
-    const auto& displayItem = m_owner.m_filtered[index];
-    const auto& entry = *displayItem.entry;
 
     if (displayItem.kind == NotificationDisplayItemKind::CollapsedGroup
         || displayItem.kind == NotificationDisplayItemKind::GroupHeader) {
-      onToggle = [this, key = displayItem.groupKey]() { m_owner.toggleGroupExpanded(key); };
-      onRemove = [this, key = displayItem.groupKey]() { m_owner.removeGroupEntries(key); };
+      onToggle = [this, key = displayItem.groupKey] { m_owner.toggleGroupExpanded(key); };
+      onRemove = [this, key = displayItem.groupKey] { m_owner.removeGroupEntries(key); };
     } else {
-      onToggle = [this, id = entry.notification.id]() { m_owner.toggleNotificationExpanded(id); };
-      onRemove = [this, id = entry.notification.id, active = entry.active]() {
+      onToggle = [this, id = entry->notification.id] { m_owner.toggleNotificationExpanded(id); };
+      onRemove = [this, id = entry->notification.id, active = entry->active] {
         m_owner.removeNotificationEntry(id, active);
       };
     }
-    const bool showHistoryActions =
-        m_owner.m_notifications != nullptr && m_owner.m_notifications->hasPendingDBusClose(entry.notification.id);
+    const bool showHistoryActions = m_owner.m_notifications->hasPendingDBusClose(entry->notification.id);
     row->bind(
-        renderer, displayItem, width, m_owner.m_expandedIds.contains(entry.notification.id), showHistoryActions,
-        m_owner.m_iconResolver, std::move(onToggle), std::move(onRemove),
+        renderer, displayItem, *entry, width, m_owner.m_expandedIds.contains(entry->notification.id),
+        showHistoryActions, m_owner.m_iconResolver, std::move(onToggle), std::move(onRemove),
         [this](uint32_t id, const std::string& key) { m_owner.invokeNotificationAction(id, key); }
     );
   }
@@ -1157,14 +1169,17 @@ bool NotificationsTab::handleKey(std::uint32_t sym, std::uint32_t modifiers, boo
     return false;
   }
   dropVanishedFiltered();
-  if (m_filtered.empty()) {
+  if (m_filtered.empty() || m_notifications == nullptr) {
     return false;
   }
   const auto& top = m_filtered.front();
   if (top.kind == NotificationDisplayItemKind::CollapsedGroup || top.kind == NotificationDisplayItemKind::GroupHeader) {
     removeGroupEntries(top.groupKey);
-  } else if (top.entry != nullptr) {
-    removeNotificationEntry(top.entry->notification.id, top.entry->active);
+  } else {
+    const auto* entry = m_notifications->findHistoryEntry(top.notificationId);
+    if (entry != nullptr) {
+      removeNotificationEntry(entry->notification.id, entry->active);
+    }
   }
   return true;
 }
@@ -1193,7 +1208,7 @@ void NotificationsTab::removeGroupEntries(const std::string& key) {
 
   std::vector<std::pair<uint32_t, bool>> toRemove;
   for (const auto& entry : m_notifications->history()) {
-    if (getNotificationGroupKey(entry.notification) == key) {
+    if (matchesHistoryFilter(entry, m_filterIndex) && getNotificationGroupKey(entry.notification) == key) {
       toRemove.emplace_back(entry.notification.id, entry.active);
     }
   }
@@ -1206,7 +1221,12 @@ void NotificationsTab::removeGroupEntries(const std::string& key) {
     m_expandedIds.erase(id);
   }
 
-  m_expandedGroupKeys.erase(key);
+  const bool hasRemaining = std::ranges::any_of(m_notifications->history(), [&](const auto& e) {
+    return getNotificationGroupKey(e.notification) == key;
+  });
+  if (!hasRemaining) {
+    m_expandedGroupKeys.erase(key);
+  }
   m_lastSerial = 0;
 
   if (m_list != nullptr) {
@@ -1298,7 +1318,7 @@ bool NotificationsTab::refreshDataSnapshot() {
         m_filtered.push_back(
             NotificationDisplayItem{
                 .kind = NotificationDisplayItemKind::Single,
-                .entry = &historyEntry,
+                .notificationId = historyEntry.notification.id,
                 .appName = notificationDisplayAppName(historyEntry.notification),
                 .total_count = 1,
             }
@@ -1320,21 +1340,21 @@ bool NotificationsTab::refreshDataSnapshot() {
               NotificationGroup{
                   .groupKey = key,
                   .appName = notificationDisplayAppName(historyEntry.notification),
-                  .entries = {&historyEntry},
+                  .entryIds = {historyEntry.notification.id},
               }
           );
         } else {
-          groups[it->second].entries.push_back(&historyEntry);
+          groups[it->second].entryIds.push_back(historyEntry.notification.id);
         }
       }
 
       m_filtered.clear();
       for (const auto& group : groups) {
-        if (group.entries.size() == 1) {
+        if (group.entryIds.size() == 1) {
           m_filtered.push_back(
               NotificationDisplayItem{
                   .kind = NotificationDisplayItemKind::Single,
-                  .entry = group.entries.front(),
+                  .notificationId = group.entryIds.front(),
                   .groupKey = group.groupKey,
                   .appName = group.appName,
                   .total_count = 1,
@@ -1346,27 +1366,27 @@ bool NotificationsTab::refreshDataSnapshot() {
             m_filtered.push_back(
                 NotificationDisplayItem{
                     .kind = NotificationDisplayItemKind::CollapsedGroup,
-                    .entry = group.entries.front(),
+                    .notificationId = group.entryIds.front(),
                     .groupKey = group.groupKey,
                     .appName = group.appName,
-                    .total_count = group.entries.size(),
+                    .total_count = group.entryIds.size(),
                 }
             );
           } else {
             m_filtered.push_back(
                 NotificationDisplayItem{
                     .kind = NotificationDisplayItemKind::GroupHeader,
-                    .entry = group.entries.front(),
+                    .notificationId = group.entryIds.front(),
                     .groupKey = group.groupKey,
                     .appName = group.appName,
-                    .total_count = group.entries.size(),
+                    .total_count = group.entryIds.size(),
                 }
             );
-            for (std::size_t i = 0; i < group.entries.size(); ++i) {
+            for (std::size_t i = 0; i < group.entryIds.size(); ++i) {
               m_filtered.push_back(
                   NotificationDisplayItem{
                       .kind = NotificationDisplayItemKind::GroupChild,
-                      .entry = group.entries[i],
+                      .notificationId = group.entryIds[i],
                       .groupKey = group.groupKey,
                       .appName = group.appName,
                       .total_count = 1,
@@ -1429,7 +1449,7 @@ void NotificationsTab::updateEmptyState(bool hasHistory, bool hasFiltered) {
 
 std::optional<std::size_t> NotificationsTab::filteredIndexForId(uint32_t id) const {
   for (std::size_t i = 0; i < m_filtered.size(); ++i) {
-    if (m_filtered[i].entry != nullptr && m_filtered[i].entry->notification.id == id) {
+    if (m_filtered[i].notificationId == id) {
       return i;
     }
   }
@@ -1441,22 +1461,21 @@ void NotificationsTab::dropVanishedFiltered() {
     return;
   }
   const auto vanished = [this](const NotificationDisplayItem& item) {
-    return item.entry == nullptr || m_notifications->findHistoryEntry(item.entry->notification.id) == nullptr;
+    return m_notifications->findHistoryEntry(item.notificationId) == nullptr;
   };
   if (std::erase_if(m_filtered, vanished) > 0 && m_list != nullptr) {
     m_list->notifyDataChanged();
   }
 }
 
-const NotificationHistoryEntry* NotificationsTab::filteredEntry(std::size_t index) const {
-  if (index >= m_filtered.size() || m_filtered[index].entry == nullptr) {
-    return nullptr;
-  }
-  return m_filtered[index].entry;
-}
-
 void NotificationsTab::onPanelCardOpacityChanged(float opacity) {
   if (m_filter != nullptr) {
     m_filter->setSurfaceOpacity(opacity);
+  }
+  if (m_adapter != nullptr) {
+    m_adapter->setFillOpacity(opacity);
+  }
+  if (m_list != nullptr) {
+    m_list->notifyDataChanged();
   }
 }

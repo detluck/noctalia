@@ -32,7 +32,7 @@ enum class NotificationDisplayItemKind : uint8_t {
 
 struct NotificationDisplayItem {
   NotificationDisplayItemKind kind = NotificationDisplayItemKind::Single;
-  const NotificationHistoryEntry* entry = nullptr;
+  uint32_t notificationId = 0;
   std::string groupKey;
   std::string appName;
   std::size_t total_count = 1;
@@ -66,7 +66,6 @@ private:
   void syncDndButton();
   void updateEmptyState(bool hasHistory, bool hasFiltered);
   std::optional<std::size_t> filteredIndexForId(uint32_t id) const;
-  [[nodiscard]] const NotificationHistoryEntry* filteredEntry(std::size_t index) const;
   // The filter slide keeps its snapshot; this only removes ids history no longer holds.
   void dropVanishedFiltered();
   void cancelFilterSlide();
