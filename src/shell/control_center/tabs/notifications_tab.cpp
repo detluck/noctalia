@@ -1277,8 +1277,10 @@ bool NotificationsTab::refreshDataSnapshot() {
   const bool groupByApp = m_config != nullptr ? m_config->config().notification.groupByApp : true;
   const std::uint64_t serial = m_notifications != nullptr ? m_notifications->changeSerial() : 0;
   const std::int64_t relativeSlot = currentRelativeTimeSlot();
-  const bool changed = serial != m_lastSerial || relativeSlot != m_lastRelativeTimeSlot
-      || m_filterIndex != m_lastRebuildFilterIndex || groupByApp != m_lastGroupByApp;
+  const bool changed = serial != m_lastSerial
+      || relativeSlot != m_lastRelativeTimeSlot
+      || m_filterIndex != m_lastRebuildFilterIndex
+      || groupByApp != m_lastGroupByApp;
   if (!changed) {
     updateEmptyState(hasHistory, !m_filtered.empty());
     return false;

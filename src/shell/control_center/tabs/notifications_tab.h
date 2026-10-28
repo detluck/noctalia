@@ -41,9 +41,7 @@ struct NotificationDisplayItem {
 
 class NotificationsTab : public Tab {
 public:
-  NotificationsTab(
-      NotificationManager* notifications, CompositorPlatform* platform, ConfigService* config = nullptr
-  );
+  NotificationsTab(NotificationManager* notifications, CompositorPlatform* platform, ConfigService* config = nullptr);
   ~NotificationsTab() override;
 
   std::unique_ptr<Flex> create() override;
