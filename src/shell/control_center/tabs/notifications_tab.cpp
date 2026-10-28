@@ -1,4 +1,3 @@
-// TODO measureItem, bind
 #include "shell/control_center/tabs/notifications_tab.h"
 
 #include "compositors/compositor_platform.h"
@@ -17,6 +16,9 @@
 #include "shell/panel/panel_manager.h"
 #include "time/time_format.h"
 #include "ui/builders.h"
+#include "ui/controls/flex.h"
+#include "ui/controls/glyph.h"
+#include "ui/controls/label.h"
 #include "ui/palette.h"
 #include "ui/style.h"
 #include "util/string_utils.h"
@@ -238,7 +240,8 @@ namespace {
     const bool isGroup = item.kind == NotificationDisplayItemKind::CollapsedGroup || isHeader;
     const float cardWidth = std::max(0.0F, width);
     const float cardHorizontalPadding = Style::spaceMd * scale * 2.0F;
-    metrics.cardTextWidth = std::max(0.0F, cardWidth - cardHorizontalPadding);
+    const float childIndent = (item.kind == NotificationDisplayItemKind::GroupChild) ? (16.0F * scale) : 0.0F;
+    metrics.cardTextWidth = std::max(0.0F, cardWidth - cardHorizontalPadding - childIndent);
 
     if (!isHeader) {
       const std::string summaryText = StringUtils::trimLeadingBlankLines(
@@ -270,14 +273,25 @@ namespace {
     const float actionButtonsGap = Style::spaceXs * scale;
     const float headerActionsWidth =
         actionButtonSize + (metrics.canExpand ? (actionButtonsGap + actionButtonSize) : 0.0F);
+
+    float badgeWidth = 0.0F;
+    if (isGroup) {
+      const std::string badgeText = std::to_string(item.total_count);
+      const float labelW =
+          renderer.measureText(badgeText, Style::fontSizeMini * scale * 0.9F, {FontWeight::Bold}).width;
+      const float iconW = Style::fontSizeMini * scale * 0.9F;
+      const float paddingH = Style::spaceXs * scale * 2.0F;
+      const float innerGap = 2.0F * scale;
+      badgeWidth = paddingH + iconW + innerGap + labelW + (Style::spaceSm * scale);
+    }
+
     const float leftClusterWidth = metrics.cardTextWidth - headerActionsWidth;
-    metrics.metaTextWidth = std::max(0.0F, leftClusterWidth - iconColumn);
+    metrics.metaTextWidth = std::max(0.0F, leftClusterWidth - iconColumn - badgeWidth);
 
     if (isHeader) {
-      metrics.metaLine = item.appName + " • " + std::to_string(item.total_count) + " notifications";
+      metrics.metaLine = item.appName;
     } else if (item.kind == NotificationDisplayItemKind::CollapsedGroup) {
-      metrics.metaLine =
-          item.appName + " (" + std::to_string(item.total_count) + ") • " + relativeMetaLine(entry.notification);
+      metrics.metaLine = item.appName + " • " + relativeMetaLine(entry.notification);
     } else {
       metrics.metaLine = notificationDisplayAppName(entry.notification) + " • " + relativeMetaLine(entry.notification);
     }
@@ -285,7 +299,8 @@ namespace {
     const float metaHeight = measuredTextHeight(
         renderer, metrics.metaLine, Style::fontSizeMini * scale, FontWeight::Normal, metrics.metaTextWidth, 0
     );
-    const float headerHeight = std::max({iconPx, actionButtonSize, metaHeight});
+    const float badgeHeight = isGroup ? ((Style::fontSizeMini * scale * 0.9F) + (2.0F * scale)) : 0.0F;
+    const float headerHeight = std::max({iconPx, actionButtonSize, metaHeight, badgeHeight});
     const float paddingY = (Style::spaceSm + Style::spaceXs) * scale * 2.0F;
 
     if (isHeader) {
@@ -351,10 +366,21 @@ namespace {
   class NotificationHistoryRow final : public Flex {
   public:
     explicit NotificationHistoryRow(float scale, float fillOpacity) : m_scale(scale) {
-      applyNotificationCardStyle(*this, scale, fillOpacity);
+      setDirection(FlexDirection::Vertical);
+      setAlign(FlexAlign::Stretch);
       setFillWidth(true);
+      setPadding(0.0F);
 
-      m_header = static_cast<Flex*>(addChild(
+      m_card = static_cast<Flex*>(addChild(
+          ui::column({
+              .align = FlexAlign::Stretch,
+              .gap = Style::spaceSm * scale,
+              .fillWidth = true,
+          })
+      ));
+      applyNotificationCardStyle(*m_card, scale, fillOpacity);
+
+      m_header = static_cast<Flex*>(m_card->addChild(
           ui::row({
               .align = FlexAlign::Center,
               .justify = FlexJustify::SpaceBetween,
@@ -409,14 +435,14 @@ namespace {
       m_expand = static_cast<Button*>(m_headerActions->addChild(makeActionButton("chevron-down", scale)));
       m_dismiss = static_cast<Button*>(m_headerActions->addChild(makeActionButton("trash", scale)));
 
-      m_summary = static_cast<Label*>(addChild(
+      m_summary = static_cast<Label*>(m_card->addChild(
           ui::label({
               .fontSize = Style::fontSizeBody * scale,
               .fontWeight = FontWeight::Bold,
           })
       ));
 
-      m_body = static_cast<Label*>(addChild(
+      m_body = static_cast<Label*>(m_card->addChild(
           ui::label({
               .fontSize = Style::fontSizeBody * scale,
               .color = colorSpecFromRole(ColorRole::OnSurfaceVariant),
@@ -424,12 +450,40 @@ namespace {
           })
       ));
 
-      m_actionsRow = static_cast<Flex*>(addChild(
+      m_actionsRow = static_cast<Flex*>(m_card->addChild(
           ui::column({
               .align = FlexAlign::Stretch,
               .gap = Style::spaceXs * scale,
               .fillWidth = true,
               .visible = false,
+          })
+      ));
+
+      m_badge = static_cast<Flex*>(m_leftCluster->addChild(
+          ui::row({
+              .align = FlexAlign::Center,
+              .gap = 2.0F * scale,
+              .paddingV = 1.0F * scale,
+              .paddingH = Style::spaceXs * scale,
+              .fill = colorSpecFromRole(ColorRole::SecondaryContainer),
+              .radius = Style::scaledRadiusSm(scale),
+              .visible = false,
+          })
+      ));
+
+      m_badgeGlyph = static_cast<Glyph*>(m_badge->addChild(
+          ui::glyph({
+              .glyph = "box-multiple",
+              .glyphSize = Style::fontSizeMini * scale * 0.9F,
+              .color = colorSpecFromRole(ColorRole::OnSecondaryContainer),
+          })
+      ));
+
+      m_badgeLabel = static_cast<Label*>(m_badge->addChild(
+          ui::label({
+              .fontSize = Style::fontSizeMini * scale * 0.9F,
+              .fontWeight = FontWeight::Bold,
+              .color = colorSpecFromRole(ColorRole::OnSecondaryContainer),
           })
       ));
     }
@@ -445,12 +499,40 @@ namespace {
       setMinWidth(width);
       setSize(width, metrics.height);
 
+      const float childIndent = (item.kind == NotificationDisplayItemKind::GroupChild) ? (16.0F * m_scale) : 0.0F;
+      setPadding(0.0F, 0.0F, 0.0F, childIndent);
+
+      if (item.kind == NotificationDisplayItemKind::GroupHeader) {
+        m_card->setFill(colorSpecFromRole(ColorRole::SurfaceContainerHigh));
+      } else {
+        m_card->setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
+      }
+
       const float iconPx = kHistoryIconSize * m_scale;
       m_iconSlot->setSize(iconPx, iconPx);
 
       bindIcon(renderer, entry, iconResolver);
 
-      m_meta->setText(metrics.metaLine);
+      if (item.kind == NotificationDisplayItemKind::GroupHeader) {
+        m_badge->setVisible(true);
+        m_badge->setParticipatesInLayout(true);
+        m_badgeGlyph->setGlyph("box-multiple");
+        m_badgeLabel->setText(std::to_string(item.total_count));
+        m_badgeLabel->measure(renderer);
+        m_meta->setText(item.appName);
+      } else if (item.kind == NotificationDisplayItemKind::CollapsedGroup) {
+        m_badge->setVisible(true);
+        m_badge->setParticipatesInLayout(true);
+        m_badgeGlyph->setGlyph("box-multiple");
+        m_badgeLabel->setText(std::to_string(item.total_count));
+        m_badgeLabel->measure(renderer);
+        m_meta->setText(item.appName + " • " + relativeMetaLine(entry.notification));
+      } else {
+        m_badge->setVisible(false);
+        m_badge->setParticipatesInLayout(false);
+        m_meta->setText(metrics.metaLine);
+      }
+
       m_meta->setColor(colorSpecFromRole(ColorRole::OnSurfaceVariant));
       m_meta->setMaxWidth(metrics.metaTextWidth);
       m_meta->measure(renderer);
@@ -459,6 +541,17 @@ namespace {
       m_expand->setEnabled(metrics.canExpand);
       m_expand->setGlyph(metrics.expanded ? "chevron-up" : "chevron-down");
       m_expand->setOnClick(std::move(onToggleExpanded));
+
+      if (item.kind == NotificationDisplayItemKind::CollapsedGroup) {
+        m_expand->setTooltip("Expand group");
+        m_dismiss->setTooltip("Dismiss group");
+      } else if (item.kind == NotificationDisplayItemKind::GroupHeader) {
+        m_expand->setTooltip("Collapse group");
+        m_dismiss->setTooltip("Dismiss group");
+      } else {
+        m_expand->setTooltip(metrics.expanded ? "Collapse" : "Expand");
+        m_dismiss->setTooltip("Dismiss");
+      }
 
       m_dismiss->setOnClick(std::move(onRemove));
 
@@ -473,7 +566,7 @@ namespace {
         m_summary->measure(renderer);
       }
 
-      if (metrics.bodyText.empty()) {
+      if (item.kind == NotificationDisplayItemKind::GroupHeader || metrics.bodyText.empty()) {
         m_body->setVisible(false);
         m_body->setText("");
       } else {
@@ -488,7 +581,8 @@ namespace {
         m_actionsRow->removeChild(m_actionsRow->children().back().get());
       }
       m_actionsRow->setVisible(false);
-      if (item.kind != NotificationDisplayItemKind::GroupHeader && showHistoryActions
+      if (item.kind != NotificationDisplayItemKind::GroupHeader
+          && showHistoryActions
           && !entry.notification.actions.empty()) {
         std::vector<std::unique_ptr<Button>> buttons;
         const std::size_t limit = std::min(entry.notification.actions.size(), kMaxNotificationActions * 2);
@@ -604,6 +698,7 @@ namespace {
     }
 
     float m_scale = 1.0F;
+    Flex* m_card = nullptr;
     Flex* m_header = nullptr;
     Flex* m_leftCluster = nullptr;
     Box* m_iconSlot = nullptr;
@@ -616,6 +711,9 @@ namespace {
     Label* m_summary = nullptr;
     Label* m_body = nullptr;
     Flex* m_actionsRow = nullptr;
+    Flex* m_badge = nullptr;
+    Glyph* m_badgeGlyph = nullptr;
+    Label* m_badgeLabel = nullptr;
     ImageKind m_imageKind = ImageKind::None;
     std::uint64_t m_rawImageKey = 0;
   };
