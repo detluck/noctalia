@@ -504,8 +504,10 @@ namespace {
 
       if (item.kind == NotificationDisplayItemKind::GroupHeader) {
         m_card->setFill(colorSpecFromRole(ColorRole::SurfaceContainerHigh));
+        m_iconSlot->setFill(colorSpecFromRole(ColorRole::SurfaceContainerHigh));
       } else {
         m_card->setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
+        m_iconSlot->setFill(colorSpecFromRole(ColorRole::SurfaceContainer));
       }
 
       const float iconPx = kHistoryIconSize * m_scale;
