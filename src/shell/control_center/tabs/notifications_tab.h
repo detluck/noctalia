@@ -15,6 +15,7 @@
 
 class NotificationManager;
 class CompositorPlatform;
+class ConfigService;
 struct NotificationHistoryEntry;
 class Button;
 class Segmented;
@@ -40,7 +41,9 @@ struct NotificationDisplayItem {
 
 class NotificationsTab : public Tab {
 public:
-  NotificationsTab(NotificationManager* notifications, CompositorPlatform* platform);
+  NotificationsTab(
+      NotificationManager* notifications, CompositorPlatform* platform, ConfigService* config = nullptr
+  );
   ~NotificationsTab() override;
 
   std::unique_ptr<Flex> create() override;
@@ -76,6 +79,8 @@ private:
 
   NotificationManager* m_notifications = nullptr;
   CompositorPlatform* m_platform = nullptr;
+  ConfigService* m_config = nullptr;
+  bool m_lastGroupByApp = true;
   IconResolver m_iconResolver;
   std::unique_ptr<NotificationHistoryAdapter> m_adapter;
   std::vector<NotificationDisplayItem> m_filtered;

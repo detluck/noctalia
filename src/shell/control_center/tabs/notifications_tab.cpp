@@ -1,6 +1,7 @@
 #include "shell/control_center/tabs/notifications_tab.h"
 
 #include "compositors/compositor_platform.h"
+#include "config/config_service.h"
 #include "core/input/keybind_matcher.h"
 #include "core/log.h"
 #include "i18n/i18n.h"
@@ -545,14 +546,16 @@ namespace {
       m_expand->setOnClick(std::move(onToggleExpanded));
 
       if (item.kind == NotificationDisplayItemKind::CollapsedGroup) {
-        m_expand->setTooltip("Expand group");
-        m_dismiss->setTooltip("Dismiss group");
+        m_expand->setTooltip(i18n::tr("control-center.notifications.expand-group"));
+        m_dismiss->setTooltip(i18n::tr("control-center.notifications.dismiss-group"));
       } else if (item.kind == NotificationDisplayItemKind::GroupHeader) {
-        m_expand->setTooltip("Collapse group");
-        m_dismiss->setTooltip("Dismiss group");
+        m_expand->setTooltip(i18n::tr("control-center.notifications.collapse-group"));
+        m_dismiss->setTooltip(i18n::tr("control-center.notifications.dismiss-group"));
       } else {
-        m_expand->setTooltip(metrics.expanded ? "Collapse" : "Expand");
-        m_dismiss->setTooltip("Dismiss");
+        m_expand->setTooltip(
+            i18n::tr(metrics.expanded ? "control-center.notifications.collapse" : "control-center.notifications.expand")
+        );
+        m_dismiss->setTooltip(i18n::tr("control-center.notifications.dismiss"));
       }
 
       m_dismiss->setOnClick(std::move(onRemove));
@@ -811,8 +814,14 @@ private:
   float m_fillOpacity = 1.0F;
 };
 
-NotificationsTab::NotificationsTab(NotificationManager* notifications, CompositorPlatform* platform)
-    : m_notifications(notifications), m_platform(platform) {}
+NotificationsTab::NotificationsTab(
+    NotificationManager* notifications, CompositorPlatform* platform, ConfigService* config
+)
+    : m_notifications(notifications), m_platform(platform), m_config(config) {
+  if (m_config != nullptr) {
+    m_lastGroupByApp = m_config->config().notification.groupByApp;
+  }
+}
 
 NotificationsTab::~NotificationsTab() = default;
 
@@ -1265,86 +1274,104 @@ bool NotificationsTab::refreshDataSnapshot() {
   }
   syncDndButton();
 
+  const bool groupByApp = m_config != nullptr ? m_config->config().notification.groupByApp : true;
   const std::uint64_t serial = m_notifications != nullptr ? m_notifications->changeSerial() : 0;
   const std::int64_t relativeSlot = currentRelativeTimeSlot();
-  const bool changed =
-      serial != m_lastSerial || relativeSlot != m_lastRelativeTimeSlot || m_filterIndex != m_lastRebuildFilterIndex;
+  const bool changed = serial != m_lastSerial || relativeSlot != m_lastRelativeTimeSlot
+      || m_filterIndex != m_lastRebuildFilterIndex || groupByApp != m_lastGroupByApp;
   if (!changed) {
     updateEmptyState(hasHistory, !m_filtered.empty());
     return false;
   }
 
-  std::vector<NotificationGroup> groups;
-  std::unordered_map<std::string, std::size_t> groupIndexMap;
-
   if (m_notifications != nullptr) {
     m_filtered.reserve(m_notifications->history().size());
-    for (const auto& historyEntry : std::views::reverse(m_notifications->history())) {
-      if (!matchesHistoryFilter(historyEntry, m_filterIndex)) {
-        continue;
-      }
-      std::string key = getNotificationGroupKey(historyEntry.notification);
-      auto it = groupIndexMap.find(key);
-      if (it == groupIndexMap.end()) {
-        groupIndexMap[key] = groups.size();
-        groups.push_back(
-            NotificationGroup{
-                .groupKey = key,
-                .appName = notificationDisplayAppName(historyEntry.notification),
-                .entries = {&historyEntry},
 
-            }
-        );
-      } else {
-        groups[it->second].entries.push_back(&historyEntry);
-      }
-    }
-
-    m_filtered.clear();
-    for (const auto& group : groups) {
-      if (group.entries.size() == 1) {
+    if (!groupByApp) {
+      m_filtered.clear();
+      for (const auto& historyEntry : std::views::reverse(m_notifications->history())) {
+        if (!matchesHistoryFilter(historyEntry, m_filterIndex)) {
+          continue;
+        }
         m_filtered.push_back(
             NotificationDisplayItem{
                 .kind = NotificationDisplayItemKind::Single,
-                .entry = group.entries.front(),
-                .groupKey = group.groupKey,
-                .appName = group.appName,
+                .entry = &historyEntry,
+                .appName = notificationDisplayAppName(historyEntry.notification),
                 .total_count = 1,
             }
         );
-      } else {
-        const bool isExpanded = m_expandedGroupKeys.contains(group.groupKey);
-        if (!isExpanded) {
-          m_filtered.push_back(
-              NotificationDisplayItem{
-                  .kind = NotificationDisplayItemKind::CollapsedGroup,
-                  .entry = group.entries.front(),
-                  .groupKey = group.groupKey,
-                  .appName = group.appName,
-                  .total_count = group.entries.size(),
+      }
+    } else {
+      std::vector<NotificationGroup> groups;
+      std::unordered_map<std::string, std::size_t> groupIndexMap;
+
+      for (const auto& historyEntry : std::views::reverse(m_notifications->history())) {
+        if (!matchesHistoryFilter(historyEntry, m_filterIndex)) {
+          continue;
+        }
+        std::string key = getNotificationGroupKey(historyEntry.notification);
+        auto it = groupIndexMap.find(key);
+        if (it == groupIndexMap.end()) {
+          groupIndexMap[key] = groups.size();
+          groups.push_back(
+              NotificationGroup{
+                  .groupKey = key,
+                  .appName = notificationDisplayAppName(historyEntry.notification),
+                  .entries = {&historyEntry},
               }
           );
         } else {
+          groups[it->second].entries.push_back(&historyEntry);
+        }
+      }
+
+      m_filtered.clear();
+      for (const auto& group : groups) {
+        if (group.entries.size() == 1) {
           m_filtered.push_back(
               NotificationDisplayItem{
-                  .kind = NotificationDisplayItemKind::GroupHeader,
+                  .kind = NotificationDisplayItemKind::Single,
                   .entry = group.entries.front(),
                   .groupKey = group.groupKey,
                   .appName = group.appName,
-                  .total_count = group.entries.size(),
+                  .total_count = 1,
               }
           );
-          for (std::size_t i = 0; i < group.entries.size(); ++i) {
+        } else {
+          const bool isExpanded = m_expandedGroupKeys.contains(group.groupKey);
+          if (!isExpanded) {
             m_filtered.push_back(
                 NotificationDisplayItem{
-                    .kind = NotificationDisplayItemKind::GroupChild,
-                    .entry = group.entries[i],
+                    .kind = NotificationDisplayItemKind::CollapsedGroup,
+                    .entry = group.entries.front(),
                     .groupKey = group.groupKey,
                     .appName = group.appName,
-                    .total_count = 1,
-                    .childIndex = i,
+                    .total_count = group.entries.size(),
                 }
             );
+          } else {
+            m_filtered.push_back(
+                NotificationDisplayItem{
+                    .kind = NotificationDisplayItemKind::GroupHeader,
+                    .entry = group.entries.front(),
+                    .groupKey = group.groupKey,
+                    .appName = group.appName,
+                    .total_count = group.entries.size(),
+                }
+            );
+            for (std::size_t i = 0; i < group.entries.size(); ++i) {
+              m_filtered.push_back(
+                  NotificationDisplayItem{
+                      .kind = NotificationDisplayItemKind::GroupChild,
+                      .entry = group.entries[i],
+                      .groupKey = group.groupKey,
+                      .appName = group.appName,
+                      .total_count = 1,
+                      .childIndex = i,
+                  }
+              );
+            }
           }
         }
       }
@@ -1354,6 +1381,7 @@ bool NotificationsTab::refreshDataSnapshot() {
   m_lastSerial = serial;
   m_lastRelativeTimeSlot = relativeSlot;
   m_lastRebuildFilterIndex = m_filterIndex;
+  m_lastGroupByApp = groupByApp;
 
   updateEmptyState(hasHistory, !m_filtered.empty());
   if (m_list != nullptr) {
